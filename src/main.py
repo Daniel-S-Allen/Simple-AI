@@ -679,7 +679,7 @@ if __name__ == "__main__":
     for _ in range(1):
         training_data = generate_data(200)
         training_data, train_stats = normalize_dataset(training_data)
-        # net = Network(5,[],8)
+        # net = Network(5, [4, 4, 4, 4], 8)
         net = Network(model="./trained.ai")
         # net.save_weights("./loaded.ai")
 
@@ -688,12 +688,19 @@ if __name__ == "__main__":
                 random.shuffle(training_data)
                 for fruit in training_data:
                     _ = net.forward(
+                        # [
+                        #     fruit.size,
+                        #     fruit.weight,
+                        #     fruit.color_hue,
+                        #     fruit.firmness,
+                        #     fruit.sugar,
+                        # ]
                         [
                             fruit.size,
                             fruit.weight,
                             fruit.color_hue,
                             fruit.firmness,
-                            fruit.sugar,
+                            fruit.sugar
                         ]
                     )
                     net.backpropagate(fruit.fruit_type.value, LEARNING_RATE)
@@ -702,9 +709,7 @@ if __name__ == "__main__":
         test_data, _ = normalize_dataset(test_data, train_stats)
         correct = 0
         for fruit in test_data:
-            result = net.forward(
-                [fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar]
-            )
+            result = net.forward([fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar])
             predicted = int(np.argmax(result))
             expected = fruit.fruit_type.value
             if predicted == expected:
@@ -733,7 +738,7 @@ if __name__ == "__main__":
         # net.delete_neuron(1,4)
         # net.delete_neuron(1,1)
         # net.delete_neuron(1,0)
-        net.save_weights("./trimmed2.ai")
+        # net.save_weights("./trimmed2.ai")
 
         # net.hidden_layers[0][1].dead = True
         # net.hidden_layers[0][4].dead = True
@@ -742,6 +747,7 @@ if __name__ == "__main__":
         correct = 0
         for fruit in test_data:
             result = net.forward(
+                # [fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar]
                 [fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar]
             )
             predicted = int(np.argmax(result))
@@ -763,4 +769,4 @@ if __name__ == "__main__":
         print(
             f"{color}\nAccuracy: {correct}/{len(test_data)} ({correct / len(test_data) * 100:.1f}%){Style.RESET_ALL}"
         )
-        net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
+        # net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
