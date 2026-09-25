@@ -3,7 +3,8 @@ from __future__ import annotations
 import math
 import random
 from enum import Enum
-from typing import override
+from io import StringIO
+from typing import Type, override
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -23,6 +24,69 @@ class Neuron:
         self.weights = []
         self.biases = []
         
+    
+    def deserialize(self, serialized:str):
+        start = 0
+        end = serialized.index(",", start)
+        value = float(serialized[start:end])
+        start = end+1
+        end = serialized.index(",", start)
+        print(serialized[start:end])
+        dead = serialized[start:end] == "True"
+        start = end+2
+        end = serialized.index("]", start)
+        weights_str = serialized[start:end]
+        print(f"{weights_str=}")
+        weights:list[float] = string_to_array(weights_str, float, ",")
+        start = end+3
+        end = serialized.index("]", start)
+        biases_str = serialized[start:end]
+        print(f"{biases_str=}")
+        biases:list[float] = string_to_array(biases_str, float, ",")
+        self.value = value
+        self.dead = dead
+        self.weights = weights
+        self.biases = biases
+            
+    def serialize(self):
+        buffer = StringIO()
+        _ = buffer.write(str(self.value))
+        _ = buffer.write(",")
+        _ = buffer.write(str(self.dead))
+        _ = buffer.write(",[")
+        for i,weight in enumerate(self.weights):
+            _ = buffer.write(str(weight))
+            if i != len(self.weights)-1:
+                _ = buffer.write(",")
+        _ = buffer.write("]")
+        _ = buffer.write(",[")
+        for i,bias in enumerate(self.biases):
+            _ = buffer.write(str(bias))
+            if i != len(self.biases)-1:
+                _ = buffer.write(",")
+        _ = buffer.write("]")
+        return buffer.getvalue()
+    
+    def serialize_weights(self):
+        buffer = StringIO()
+        _ = buffer.write("[")
+        for i,weight in enumerate(self.weights):
+            _ = buffer.write(str(weight))
+            if i != len(self.weights):
+                _ = buffer.write(",")
+        _ = buffer.write("]")
+        return buffer.getvalue()
+    
+    def serialize_biases(self):
+        buffer = StringIO()
+        _ = buffer.write("[")
+        for i,bias in enumerate(self.biases):
+            _ = buffer.write(str(bias))
+            if i != len(self.biases):
+                _ = buffer.write(",")
+        _ = buffer.write("]")
+        return buffer.getvalue()
+    
     def connect(self, neuron:Neuron, weight:float|None = None, bias:float = 0.1, fan_in:int = 1):
         self.connections.append(neuron)
         if weight is None:
@@ -45,7 +109,23 @@ class Network:
     input_layer:list[Neuron]
     hidden_layers:list[list[Neuron]]
     output_layer:list[Neuron]
-    def __init__(self, input:int, hidden:list[int], output:int):
+        
+    def __init__(self, input:int|None = None, hidden:list[int]|None = None, output:int|None = None, model:str|None = None):
+        if model is not None:
+            with open(model, "r") as file:
+                line = file.readline()
+                start = 0
+                end = line.find(",")
+                input = int(line[start:end])
+                start = end+1
+                end = line.find("]")+1
+                hidden_str = line[start:end]
+                hidden = string_to_array(hidden_str, int, ",")
+                start = end+1
+                output = int(line[start:])
+                
+        if (input is None or hidden is None or output is None):
+            raise TypeError("You must specify either a modelfile to load, or the dimensions of the network.")
         self.input_layer = [Neuron() for _ in range(input)]
         self.hidden_layers = [[Neuron() for _ in range(hidden[i])] for i in range(len(hidden))]
         self.output_layer = [Neuron() for _ in range(output)]
@@ -62,6 +142,61 @@ class Network:
         for hidden_neuron_in_last_layer in self.hidden_layers[-1]:
             for output_neuron in self.output_layer:
                 hidden_neuron_in_last_layer.connect(output_neuron, fan_in=len(self.hidden_layers[-1]))
+        
+        if model is not None:
+            self.load_weights(model)
+            
+    def get_layer_from_id(self, layer_id:int) -> list[Neuron]:
+        if layer_id == 0:
+            return self.input_layer
+        elif layer_id == len(self.hidden_layers) + 1:
+            return self.output_layer
+        else:
+            return self.hidden_layers[layer_id-1]
+        
+    def delete_neuron(self, layer_id:int, neuron_id:int):
+        # Treat input layer specially
+        if layer_id == 0:
+            _ = self.input_layer.pop(neuron_id)
+        else:
+            layer = self.get_layer_from_id(layer_id)
+            previous_layer = self.get_layer_from_id(layer_id-1)
+            for neuron in previous_layer:
+                _ = neuron.connections.pop(neuron_id)
+                _ = neuron.biases.pop(neuron_id)
+                _ = neuron.weights.pop(neuron_id)
+            _ = layer.pop(neuron_id)
+    
+    def load_weights(self, path:str):
+        with open(path, "r") as file:
+            line = file.readline() # Ignore first line, which dictates the shape of the network
+            line = file.readline()
+            for neuron in self.input_layer:
+                neuron.deserialize(line)
+                line = file.readline()
+            for layer in self.hidden_layers:
+                for neuron in layer:
+                    neuron.deserialize(line)
+                    line = file.readline()
+            for neuron in self.output_layer:
+                neuron.deserialize(line)
+                line = file.readline()
+                
+    
+    def save_weights(self, path:str):
+        with open(path, "w") as file:
+            _ = file.write(f"{len(self.input_layer)},")
+            _ = file.write("[")
+            for i,layer in enumerate(self.hidden_layers):
+                _ = file.write(str(len(layer)))
+                if i != len(self.hidden_layers)-1:
+                    _ = file.write(",")
+                _ = file.write("],")
+            _ = file.write(f"{len(self.output_layer)}\n")
+            file.writelines(neuron.serialize() + "\n" for neuron in self.input_layer)
+            for layer in self.hidden_layers:
+                file.writelines(neuron.serialize() + "\n" for neuron in layer)
+            file.writelines(neuron.serialize() + "\n" for neuron in self.output_layer)
                 
     def forward(self, input_values:list[float]):
         for neuron, value in zip(self.input_layer, input_values):
@@ -345,19 +480,32 @@ def generate_data(count:int) -> list[FruitClass]:
                 data.append(generate_pear())
     return data
         
-
+def string_to_array[T](input:str, item_type:type[T], seperator:str = ",")->list[T]:
+        input = input.removeprefix("[")
+        input = input.removesuffix("]")
+        items:list[T] = []
+        for weight in input.split(seperator):
+            if weight:
+                items.append(item_type(weight))  # pyright: ignore[reportCallIssue]
+                
+        return items
+    
 if __name__ == "__main__":
+    train = True
     for _ in range(1):
         training_data = generate_data(200)
         training_data, train_stats = normalize_dataset(training_data)
-        net = Network(2,[6],3)
-
-        for _ in range(50):
-            random.shuffle(training_data)
-            for fruit in training_data:
-                net.forward([fruit.size, fruit.weight])
-                net.backpropagate(fruit.type.value, LEARNING_RATE)
+        # net = Network(2,[6],3)
+        net = Network(model="./trimmed2.ai")
+        # net.save_weights("./loaded.ai")
         
+        if train:
+            for _ in range(50):
+                random.shuffle(training_data)
+                for fruit in training_data:
+                    _ = net.forward([fruit.size, fruit.weight])
+                    net.backpropagate(fruit.type.value, LEARNING_RATE)
+            net.save_weights("./trained.ai")
         test_data = generate_data(1000)
         test_data, _ = normalize_dataset(test_data, train_stats)
         correct = 0
@@ -387,9 +535,15 @@ if __name__ == "__main__":
             next(f for f in test_data if f.type == FRUIT_TYPE.BANANA),
         ]
         net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
-        net.hidden_layers[0][3].dead = True
-        net.hidden_layers[0][2].dead = True
-        net.hidden_layers[0][1].dead = True
+        # net.delete_neuron(1,4)
+        # net.delete_neuron(1,1)
+        # net.delete_neuron(1,0)
+        net.save_weights("./trimmed2.ai")
+
+        # net.hidden_layers[0][1].dead = True
+        # net.hidden_layers[0][4].dead = True
+        # net.hidden_layers[0][2].dead = True
+        # net.hidden_layers[0][1].dead = True
         correct = 0
         for fruit in test_data:
             result = net.forward([fruit.size, fruit.weight])
