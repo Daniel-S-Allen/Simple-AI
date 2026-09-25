@@ -4,7 +4,7 @@ import math
 import random
 from enum import Enum
 from io import StringIO
-from typing import Type, override
+from typing import no_type_check, override
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -31,17 +31,14 @@ class Neuron:
         value = float(serialized[start:end])
         start = end+1
         end = serialized.index(",", start)
-        print(serialized[start:end])
         dead = serialized[start:end] == "True"
         start = end+2
         end = serialized.index("]", start)
         weights_str = serialized[start:end]
-        print(f"{weights_str=}")
         weights:list[float] = string_to_array(weights_str, float, ",")
         start = end+3
         end = serialized.index("]", start)
         biases_str = serialized[start:end]
-        print(f"{biases_str=}")
         biases:list[float] = string_to_array(biases_str, float, ",")
         self.value = value
         self.dead = dead
@@ -130,18 +127,24 @@ class Network:
         self.hidden_layers = [[Neuron() for _ in range(hidden[i])] for i in range(len(hidden))]
         self.output_layer = [Neuron() for _ in range(output)]
         
-        for input_neuron in self.input_layer:
-            for hidden_neuron_in_first_layer in self.hidden_layers[0]:
-                input_neuron.connect(hidden_neuron_in_first_layer, fan_in=len(self.input_layer))
+        if len(hidden) == 0:
+            for input_neuron in self.input_layer:
+                for output_neuron in self.output_layer:
+                    input_neuron.connect(output_neuron, fan_in=len(self.input_layer))
+        else:
+            for input_neuron in self.input_layer:
+                for hidden_neuron_in_first_layer in self.hidden_layers[0]:
+                    input_neuron.connect(hidden_neuron_in_first_layer, fan_in=len(self.input_layer))
         
         for hidden_layer_id in range(len(self.hidden_layers)-1):
             for hidden_neuron_in_current_layer in self.hidden_layers[hidden_layer_id]:
                 for hidden_neuron_in_next_layer in self.hidden_layers[hidden_layer_id+1]:
                     hidden_neuron_in_current_layer.connect(hidden_neuron_in_next_layer, fan_in=len(self.hidden_layers[hidden_layer_id]))
-                    
-        for hidden_neuron_in_last_layer in self.hidden_layers[-1]:
-            for output_neuron in self.output_layer:
-                hidden_neuron_in_last_layer.connect(output_neuron, fan_in=len(self.hidden_layers[-1]))
+        
+        if len(hidden) != 0:
+            for hidden_neuron_in_last_layer in self.hidden_layers[-1]:
+                for output_neuron in self.output_layer:
+                    hidden_neuron_in_last_layer.connect(output_neuron, fan_in=len(self.hidden_layers[-1]))
         
         if model is not None:
             self.load_weights(model)
@@ -191,7 +194,7 @@ class Network:
                 _ = file.write(str(len(layer)))
                 if i != len(self.hidden_layers)-1:
                     _ = file.write(",")
-                _ = file.write("],")
+            _ = file.write("],")
             _ = file.write(f"{len(self.output_layer)}\n")
             file.writelines(neuron.serialize() + "\n" for neuron in self.input_layer)
             for layer in self.hidden_layers:
@@ -275,7 +278,7 @@ class Network:
                     neuron.weights[i] += learning_rate * weight_gradient
                     neuron.biases[i] += learning_rate * bias_gradient
         
-    
+    @no_type_check
     def visualize(
         self,
         title: str = "Neural Network Visualization",
@@ -294,14 +297,9 @@ class Network:
         output_values = [n.value for n in self.output_layer]
         predicted_idx = int(np.argmax(output_values)) if output_values else -1
 
-        def is_neuron_dead(neuron: Neuron, layer_idx: int) -> bool:
+        def is_neuron_dead(neuron: Neuron) -> bool:
             """Determines if a neuron is dead (explicitly marked or inactive hidden neuron)."""
-            if neuron.dead:
-                return True
-            # Hidden layer neuron with non-positive activation output
-            # if 0 < layer_idx < len(layers) - 1 and neuron.value <= 0:
-            #     return True
-            return False
+            return neuron.dead
 
         # 1. Assign positions, labels, and colors
         for layer_idx, layer in enumerate(layers):
@@ -314,7 +312,7 @@ class Network:
                 labels[neuron] = f"{neuron.value:.2f}"
 
                 # Color dead neurons black
-                if is_neuron_dead(neuron, layer_idx):
+                if is_neuron_dead(neuron):
                     node_colors.append("#212121")
                 elif layer_idx < len(layers) - 1:
                     node_colors.append(layer_colors[layer_idx])
@@ -329,17 +327,17 @@ class Network:
         for layer_idx, layer in enumerate(layers[:-1]):
             for neuron in layer:
                 # Do not draw outgoing edges if the source neuron is dead
-                if is_neuron_dead(neuron, layer_idx):
+                if is_neuron_dead(neuron):
                     continue
 
                 for target_neuron, weight in zip(neuron.connections, neuron.weights):
-                    G.add_edge(neuron, target_neuron, weight=weight)
+                    _ = G.add_edge(neuron, target_neuron, weight=weight)
                     edge_weights.append(weight)
 
         # Handle Plotting Context
         is_standalone = False
         if ax is None:
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _fig, ax = plt.subplots(figsize=(10, 6))
             is_standalone = True
 
         if class_names and 0 <= predicted_idx < len(class_names):
@@ -347,18 +345,18 @@ class Network:
         else:
             full_title = f"{title}\nPred Index: {predicted_idx}"
 
-        ax.set_title(full_title, fontsize=11, fontweight="bold", pad=15)
+        _ = ax.set_title(full_title, fontsize=11, fontweight="bold", pad=15)
 
         # 3. Draw Network Elements
-        nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=850, ax=ax)
-        nx.draw_networkx_labels(G, pos, labels=labels, font_size=7, font_color="white", font_weight="bold", ax=ax)
+        _ = nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=850, ax=ax)
+        _ = nx.draw_networkx_labels(G, pos, labels=labels, font_size=7, font_color="white", font_weight="bold", ax=ax)
 
         # Only draw edges if active outgoing connections exist
         if edge_weights:
             widths = [1 + 2.5 * abs(w) for w in edge_weights]
             edge_colors = ["#444444" if w >= 0 else "#D32F2F" for w in edge_weights]
 
-            nx.draw_networkx_edges(
+            _ = nx.draw_networkx_edges(
                 G,
                 pos,
                 width=widths,
@@ -371,7 +369,7 @@ class Network:
 
         layer_names = ["Input"] + [f"H{i+1}" for i in range(len(self.hidden_layers))] + ["Output"]
         for i, name in enumerate(layer_names):
-            ax.text(i, max([p[1] for p in pos.values()]) + 0.7, name, ha="center", fontsize=9, fontweight="semibold")
+            _ = ax.text(i, max([p[1] for p in pos.values()]) + 0.7, name, ha="center", fontsize=9, fontweight="semibold")
 
         if class_names:
             output_x = len(layers) - 1
@@ -382,7 +380,7 @@ class Network:
                     is_pred = node_idx == predicted_idx
                     text_color = "#E91E63" if is_pred else "#333333"
                     font_wt = "bold" if is_pred else "normal"
-                    ax.text(
+                    _ = ax.text(
                         output_x + 0.25,
                         y_pos,
                         f"← {name_str}",
@@ -393,22 +391,23 @@ class Network:
                         color=text_color,
                     )
 
-        ax.axis("off")
+        _ = ax.axis("off")
 
         if is_standalone:
             plt.tight_layout()
             plt.show()
 
+    @no_type_check
     def visualize_multiple(self, samples: list[FruitClass], class_names: list[str] | None = None):
         """Executes forward passes for multiple samples and plots network visualizations side-by-side."""
         n_samples = len(samples)
-        fig, axes = plt.subplots(1, n_samples, figsize=(5.5 * n_samples, 6))
+        _fig, axes = plt.subplots(1, n_samples, figsize=(5.5 * n_samples, 6))
 
         if n_samples == 1:
             axes = [axes]
 
         for idx, (sample, ax) in enumerate(zip(samples, axes)):
-            self.forward([sample.size, sample.weight])
+            _ = self.forward([sample.size, sample.weight])
             actual_label = sample.type.name if hasattr(sample, "type") else f"Sample {idx+1}"
             sub_title = f"Test #{idx+1} (Actual: {actual_label})"
             self.visualize(title=sub_title, class_names=class_names, ax=ax)
@@ -420,35 +419,115 @@ class FRUIT_TYPE(Enum):
     APPLE = 0
     PEAR = 1
     BANANA = 2
+    LEMON = 3
+    STRAWBERRY = 4
+    WATERMELON = 5
+    BLUEBERRY = 6
+    ORANGE = 7
     
 class FruitClass:
     size: float
     weight: float
-    type: FRUIT_TYPE
-    def __init__(self, size:float, weight:float, type:FRUIT_TYPE):
+    color_hue: float
+    firmness: float
+    sugar: float
+    fruit_type: FRUIT_TYPE
+
+    def __init__(self, size: float, weight: float, color_hue: float, firmness: float, sugar: float, fruit_type: FRUIT_TYPE):
         self.size = size
         self.weight = weight
-        self.type = type
-        
+        self.color_hue = color_hue
+        self.firmness = firmness
+        self.sugar = sugar
+        self.fruit_type = fruit_type
+
     @override
     def __repr__(self):
-        return f"[{self.type.name} (Size: {self.size}, Weight: {self.weight})]"
+        return (
+            f"[{self.fruit_type.name} | Size: {self.size:.2f}, Weight: {self.weight:.2f}, "
+            f"Hue: {self.color_hue:.2f}, Firmness: {self.firmness:.2f}, Sugar: {self.sugar:.2f}]"
+        )
     
     
 def generate_apple() -> FruitClass:
-    size = random.uniform(1.0,3.0)
-    weight = random.uniform(3.0, 5.0)
-    return FruitClass(size, weight, FRUIT_TYPE.APPLE)
+    return FruitClass(
+        random.uniform(7.0, 9.0),
+        random.uniform(150.0, 220.0),
+        random.uniform(0.0, 0.15),
+        random.uniform(7.0, 9.0),
+        random.uniform(11.0, 15.0),
+        FRUIT_TYPE.APPLE
+    )
 
 def generate_pear() -> FruitClass:
-    size = random.uniform(3.5,5.5)
-    weight = random.uniform(2.0,3.5)
-    return FruitClass(size, weight, FRUIT_TYPE.PEAR)
+    return FruitClass(
+        random.uniform(8.0, 11.0),
+        random.uniform(160.0, 230.0),
+        random.uniform(0.25, 0.40),
+        random.uniform(4.0, 7.0),
+        random.uniform(10.0, 14.0),
+        FRUIT_TYPE.PEAR
+    )
 
 def generate_banana() -> FruitClass:
-    size = random.uniform(6.0,9.0)
-    weight = random.uniform(0.5,1.8)
-    return FruitClass(size, weight, FRUIT_TYPE.BANANA)
+    return FruitClass(
+        random.uniform(15.0, 22.0),
+        random.uniform(110.0, 160.0),
+        random.uniform(0.85, 0.95),
+        random.uniform(1.5, 3.5),
+        random.uniform(14.0, 20.0),
+        FRUIT_TYPE.BANANA
+    )
+
+def generate_lemon() -> FruitClass:
+    return FruitClass(
+        random.uniform(5.0, 7.5),
+        random.uniform(50.0, 90.0),
+        random.uniform(0.80, 0.90),
+        random.uniform(6.0, 8.5),
+        random.uniform(2.0, 4.5),
+        FRUIT_TYPE.LEMON
+    )
+
+def generate_strawberry() -> FruitClass:
+    return FruitClass(
+        random.uniform(2.5, 4.5),
+        random.uniform(12.0, 30.0),
+        random.uniform(0.0, 0.08),
+        random.uniform(2.0, 4.0),
+        random.uniform(6.0, 9.5),
+        FRUIT_TYPE.STRAWBERRY
+    )
+
+def generate_watermelon() -> FruitClass:
+    return FruitClass(
+        random.uniform(25.0, 45.0),
+        random.uniform(4000.0, 9000.0),
+        random.uniform(0.25, 0.38),
+        random.uniform(8.5, 10.0),
+        random.uniform(8.0, 12.0),
+        FRUIT_TYPE.WATERMELON
+    )
+
+def generate_blueberry() -> FruitClass:
+    return FruitClass(
+        random.uniform(0.8, 1.8),
+        random.uniform(0.5, 2.5),
+        random.uniform(0.55, 0.68),
+        random.uniform(3.0, 5.0),
+        random.uniform(9.0, 13.0),
+        FRUIT_TYPE.BLUEBERRY
+    )
+
+def generate_orange() -> FruitClass:
+    return FruitClass(
+        random.uniform(6.5, 9.5),
+        random.uniform(130.0, 210.0),
+        random.uniform(0.90, 1.00),
+        random.uniform(5.0, 7.5),
+        random.uniform(9.0, 13.0),
+        FRUIT_TYPE.ORANGE
+    )
 
 def normalize_dataset(data: list[FruitClass], stats: tuple[float, float, float, float] | None = None):
     """Normalizes dataset features. If stats are provided, uses them to scale without leakage."""
@@ -466,18 +545,38 @@ def normalize_dataset(data: list[FruitClass], stats: tuple[float, float, float, 
         f.weight = (f.weight - min_w) / (max_w - min_w + 1e-8)
 
     return data, stats
-
-def generate_data(count:int) -> list[FruitClass]:
+GENERATORS = {
+    FRUIT_TYPE.APPLE: generate_apple,
+    FRUIT_TYPE.PEAR: generate_pear,
+    FRUIT_TYPE.BANANA: generate_banana,
+    FRUIT_TYPE.LEMON: generate_lemon,
+    FRUIT_TYPE.STRAWBERRY: generate_strawberry,
+    FRUIT_TYPE.WATERMELON: generate_watermelon,
+    FRUIT_TYPE.BLUEBERRY: generate_blueberry,
+    FRUIT_TYPE.ORANGE: generate_orange,
+}
+def generate_data(count: int) -> list[FruitClass]:
     data: list[FruitClass] = []
+    
+    # Randomly pick from all available fruit generators
     for _ in range(count):
-        f_type = random.choice(list(FRUIT_TYPE))
-        match f_type:
-            case FRUIT_TYPE.APPLE:
-                data.append(generate_apple())
-            case FRUIT_TYPE.BANANA:
-                data.append(generate_banana())
-            case FRUIT_TYPE.PEAR:
-                data.append(generate_pear())
+        fruit_type = random.choice(list(FRUIT_TYPE))
+        data.append(GENERATORS[fruit_type]())
+
+    # Min-Max Feature Normalization across all 5 dimensions
+    min_s, max_s = min(f.size for f in data), max(f.size for f in data)
+    min_w, max_w = min(f.weight for f in data), max(f.weight for f in data)
+    min_h, max_h = min(f.color_hue for f in data), max(f.color_hue for f in data)
+    min_f, max_f = min(f.firmness for f in data), max(f.firmness for f in data)
+    min_g, max_g = min(f.sugar for f in data), max(f.sugar for f in data)
+
+    for f in data:
+        f.size = (f.size - min_s) / (max_s - min_s)
+        f.weight = (f.weight - min_w) / (max_w - min_w)
+        f.color_hue = (f.color_hue - min_h) / (max_h - min_h)
+        f.firmness = (f.firmness - min_f) / (max_f - min_f)
+        f.sugar = (f.sugar - min_g) / (max_g - min_g)
+
     return data
         
 def string_to_array[T](input:str, item_type:type[T], seperator:str = ",")->list[T]:
@@ -491,28 +590,28 @@ def string_to_array[T](input:str, item_type:type[T], seperator:str = ",")->list[
         return items
     
 if __name__ == "__main__":
-    train = True
+    train = False
     for _ in range(1):
         training_data = generate_data(200)
         training_data, train_stats = normalize_dataset(training_data)
-        # net = Network(2,[6],3)
-        net = Network(model="./trimmed2.ai")
+        # net = Network(5,[],8)
+        net = Network(model="./trained.ai")
         # net.save_weights("./loaded.ai")
         
         if train:
             for _ in range(50):
                 random.shuffle(training_data)
                 for fruit in training_data:
-                    _ = net.forward([fruit.size, fruit.weight])
-                    net.backpropagate(fruit.type.value, LEARNING_RATE)
+                    _ = net.forward([fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar])
+                    net.backpropagate(fruit.fruit_type.value, LEARNING_RATE)
             net.save_weights("./trained.ai")
         test_data = generate_data(1000)
         test_data, _ = normalize_dataset(test_data, train_stats)
         correct = 0
         for fruit in test_data:
-            result = net.forward([fruit.size, fruit.weight])
+            result = net.forward([fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar])
             predicted = int(np.argmax(result))
-            expected = fruit.type.value
+            expected = fruit.fruit_type.value
             if predicted == expected:
                 correct += 1
             # print(f"Probabilities: {[round(p, 3) for p in result]} | Predicted: {predicted}, Expected: {expected}")
@@ -530,9 +629,9 @@ if __name__ == "__main__":
         
         print(f"{color}\nAccuracy: {correct}/{len(test_data)} ({correct / len(test_data) * 100:.1f}%){Style.RESET_ALL}")
         test_samples = [
-            next(f for f in test_data if f.type == FRUIT_TYPE.APPLE),
-            next(f for f in test_data if f.type == FRUIT_TYPE.PEAR),
-            next(f for f in test_data if f.type == FRUIT_TYPE.BANANA),
+            next(f for f in test_data if f.fruit_type == FRUIT_TYPE.APPLE),
+            next(f for f in test_data if f.fruit_type == FRUIT_TYPE.PEAR),
+            next(f for f in test_data if f.fruit_type == FRUIT_TYPE.BANANA),
         ]
         net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
         # net.delete_neuron(1,4)
@@ -546,9 +645,9 @@ if __name__ == "__main__":
         # net.hidden_layers[0][1].dead = True
         correct = 0
         for fruit in test_data:
-            result = net.forward([fruit.size, fruit.weight])
+            result = net.forward([fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar])
             predicted = int(np.argmax(result))
-            expected = fruit.type.value
+            expected = fruit.fruit_type.value
             if predicted == expected:
                 correct += 1
             # print(f"Probabilities: {[round(p, 3) for p in result]} | Predicted: {predicted}, Expected: {expected}")
