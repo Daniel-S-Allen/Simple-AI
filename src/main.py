@@ -242,19 +242,14 @@ class Network:
             sums = [0.0] * len(right_layer)
             for source_neuron in left_layer:
                 if not source_neuron.dead:
-                    for destination_id, weight in enumerate(source_neuron.weights):
+                    for destination_id, (weight, bias) in enumerate(zip(source_neuron.weights, source_neuron.biases)):
                         sums[destination_id] += source_neuron.value * weight
-
-            for source_neuron in left_layer:
-                if not source_neuron.dead:
-                    for destination_id, bias in enumerate(source_neuron.biases):
                         sums[destination_id] += bias / len(left_layer)
 
             if not is_output:
                 for i, neuron in enumerate(right_layer):
                     neuron.value = neuron.activate(sums[i], "relu")
             else:
-                # TODO learn how this block of code works
                 max_s = max(sums)
                 exp_scores = [math.exp(s - max_s) for s in sums]
                 sum_exp = sum(exp_scores)
@@ -452,27 +447,27 @@ class Network:
             plt.tight_layout()
             plt.show()
 
-    @no_type_check
+    
     def visualize_multiple(
         self, samples: list[FruitClass], class_names: list[str] | None = None
     ):
         """Executes forward passes for multiple samples and plots network visualizations side-by-side."""
         n_samples = len(samples)
-        _fig, axes = plt.subplots(1, n_samples, figsize=(5.5 * n_samples, 6))
+        _fig, axes = plt.subplots(1, n_samples, figsize=(5.5 * n_samples, 6))  # pyright: ignore[reportAny]
 
         if n_samples == 1:
             axes = [axes]
 
-        for idx, (sample, ax) in enumerate(zip(samples, axes)):
-            _ = self.forward([sample.size, sample.weight])
+        for idx, (sample, ax) in enumerate(zip(samples, axes)): # pyright: ignore[reportAny]
+            _ = self.forward([sample.size, sample.weight, sample.color_hue, sample.firmness, sample.sugar])
             actual_label = (
-                sample.type.name if hasattr(sample, "type") else f"Sample {idx + 1}"
+                sample.fruit_type.name if hasattr(sample, "fruit_type") else f"Sample {idx + 1}"
             )
             sub_title = f"Test #{idx + 1} (Actual: {actual_label})"
-            self.visualize(title=sub_title, class_names=class_names, ax=ax)
+            self.visualize(title=sub_title, class_names=class_names, ax=ax) # pyright: ignore[reportAny, reportUnknownMemberType]
 
         plt.tight_layout()
-        plt.show()
+        plt.show()  # pyright: ignore[reportUnknownMemberType]
 
 
 class FRUIT_TYPE(Enum):
@@ -675,12 +670,12 @@ def string_to_array[T](input: str, item_type: type[T], seperator: str = ",") -> 
 
 
 if __name__ == "__main__":
-    train = False
+    train = True
     for _ in range(1):
         training_data = generate_data(200)
         training_data, train_stats = normalize_dataset(training_data)
-        # net = Network(5, [4, 4, 4, 4], 8)
-        net = Network(model="./trained.ai")
+        net = Network(5, [100], 8)
+        # net = Network(model="./trained.ai")
         # net.save_weights("./loaded.ai")
 
         if train:
@@ -688,13 +683,6 @@ if __name__ == "__main__":
                 random.shuffle(training_data)
                 for fruit in training_data:
                     _ = net.forward(
-                        # [
-                        #     fruit.size,
-                        #     fruit.weight,
-                        #     fruit.color_hue,
-                        #     fruit.firmness,
-                        #     fruit.sugar,
-                        # ]
                         [
                             fruit.size,
                             fruit.weight,
@@ -707,6 +695,7 @@ if __name__ == "__main__":
             net.save_weights("./trained.ai")
         test_data = generate_data(1000)
         test_data, _ = normalize_dataset(test_data, train_stats)
+        incorrect:list[FruitClass] = []
         correct = 0
         for fruit in test_data:
             result = net.forward([fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar])
@@ -714,7 +703,9 @@ if __name__ == "__main__":
             expected = fruit.fruit_type.value
             if predicted == expected:
                 correct += 1
-            # print(f"Probabilities: {[round(p, 3) for p in result]} | Predicted: {predicted}, Expected: {expected}")
+            else:
+                incorrect.append(fruit)
+                
         color = Fore.WHITE
         percent_correct = correct / len(test_data)
         if percent_correct < 0.50:
@@ -729,44 +720,15 @@ if __name__ == "__main__":
         print(
             f"{color}\nAccuracy: {correct}/{len(test_data)} ({correct / len(test_data) * 100:.1f}%){Style.RESET_ALL}"
         )
-        test_samples = [
-            next(f for f in test_data if f.fruit_type == FRUIT_TYPE.APPLE),
-            next(f for f in test_data if f.fruit_type == FRUIT_TYPE.PEAR),
-            next(f for f in test_data if f.fruit_type == FRUIT_TYPE.BANANA),
-        ]
+        test_samples = []
+        
+        if len(incorrect) == -1:
+            test_samples = [incorrect[i] for i in range(min(len(incorrect), 3))]
+        else:
+            test_samples = [
+                next(fruit for fruit in test_data if fruit.fruit_type == FRUIT_TYPE.APPLE),
+                next(fruit for fruit in test_data if fruit.fruit_type == FRUIT_TYPE.PEAR),
+                next(fruit for fruit in test_data if fruit.fruit_type == FRUIT_TYPE.BANANA),
+            ]
+        
         net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
-        # net.delete_neuron(1,4)
-        # net.delete_neuron(1,1)
-        # net.delete_neuron(1,0)
-        # net.save_weights("./trimmed2.ai")
-
-        # net.hidden_layers[0][1].dead = True
-        # net.hidden_layers[0][4].dead = True
-        # net.hidden_layers[0][2].dead = True
-        # net.hidden_layers[0][1].dead = True
-        correct = 0
-        for fruit in test_data:
-            result = net.forward(
-                # [fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar]
-                [fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar]
-            )
-            predicted = int(np.argmax(result))
-            expected = fruit.fruit_type.value
-            if predicted == expected:
-                correct += 1
-            # print(f"Probabilities: {[round(p, 3) for p in result]} | Predicted: {predicted}, Expected: {expected}")
-        color = Fore.WHITE
-        percent_correct = correct / len(test_data)
-        if percent_correct < 0.50:
-            color = Fore.RED
-        elif percent_correct < 0.70:
-            color = Fore.LIGHTRED_EX
-        elif percent_correct < 0.80:
-            color = Fore.YELLOW
-        elif percent_correct < 0.95:
-            color = Fore.LIGHTBLACK_EX
-
-        print(
-            f"{color}\nAccuracy: {correct}/{len(test_data)} ({correct / len(test_data) * 100:.1f}%){Style.RESET_ALL}"
-        )
-        # net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
