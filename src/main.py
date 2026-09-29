@@ -1,15 +1,23 @@
 from __future__ import annotations
-
+import glob
+import hashlib
+from numpy._typing._array_like import NDArray
+from numpy import float64
+import zipfile
+from PIL import Image
+from requests import request
 import math
+from pathlib import Path
 import random
 from enum import Enum
 from io import StringIO
-from typing import no_type_check, override
-
+from typing import Iterator, no_type_check, override
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from colorama import Fore, Style
+import requests
 
 LEARNING_RATE = 0.03
 DEAD_NEURON_RATE = 0.1
@@ -232,9 +240,12 @@ class Network:
                 file.writelines(neuron.serialize() + "\n" for neuron in layer)
             file.writelines(neuron.serialize() + "\n" for neuron in self.output_layer)
 
-    def forward(self, input_values: list[float]):
+    def forward(self, input_values: list[float|np.ndarray]):
         for neuron, value in zip(self.input_layer, input_values):
-            neuron.value = value
+            if type(value) == float:
+                neuron.value = value
+            else:
+                neuron.value = float(value)
 
         def feed_forward(
             left_layer: list[Neuron], right_layer: list[Neuron], is_output: bool = False
@@ -469,194 +480,13 @@ class Network:
         plt.tight_layout()
         plt.show()  # pyright: ignore[reportUnknownMemberType]
 
-
-class FRUIT_TYPE(Enum):
-    APPLE = 0
-    PEAR = 1
-    BANANA = 2
-    LEMON = 3
-    STRAWBERRY = 4
-    WATERMELON = 5
-    BLUEBERRY = 6
-    ORANGE = 7
-
-
-class FruitClass:
-    size: float
-    weight: float
-    color_hue: float
-    firmness: float
-    sugar: float
-    fruit_type: FRUIT_TYPE
-
-    def __init__(
-        self,
-        size: float,
-        weight: float,
-        color_hue: float,
-        firmness: float,
-        sugar: float,
-        fruit_type: FRUIT_TYPE,
-    ):
-        self.size = size
-        self.weight = weight
-        self.color_hue = color_hue
-        self.firmness = firmness
-        self.sugar = sugar
-        self.fruit_type = fruit_type
-
-    @override
-    def __repr__(self):
-        return (
-            f"[{self.fruit_type.name} | Size: {self.size:.2f}, Weight: {self.weight:.2f}, "
-            f"Hue: {self.color_hue:.2f}, Firmness: {self.firmness:.2f}, Sugar: {self.sugar:.2f}]"
-        )
-
-
-def generate_apple() -> FruitClass:
-    return FruitClass(
-        random.uniform(7.0, 9.0),
-        random.uniform(150.0, 220.0),
-        random.uniform(0.0, 0.15),
-        random.uniform(7.0, 9.0),
-        random.uniform(11.0, 15.0),
-        FRUIT_TYPE.APPLE,
-    )
-
-
-def generate_pear() -> FruitClass:
-    return FruitClass(
-        random.uniform(8.0, 11.0),
-        random.uniform(160.0, 230.0),
-        random.uniform(0.25, 0.40),
-        random.uniform(4.0, 7.0),
-        random.uniform(10.0, 14.0),
-        FRUIT_TYPE.PEAR,
-    )
-
-
-def generate_banana() -> FruitClass:
-    return FruitClass(
-        random.uniform(15.0, 22.0),
-        random.uniform(110.0, 160.0),
-        random.uniform(0.85, 0.95),
-        random.uniform(1.5, 3.5),
-        random.uniform(14.0, 20.0),
-        FRUIT_TYPE.BANANA,
-    )
-
-
-def generate_lemon() -> FruitClass:
-    return FruitClass(
-        random.uniform(5.0, 7.5),
-        random.uniform(50.0, 90.0),
-        random.uniform(0.80, 0.90),
-        random.uniform(6.0, 8.5),
-        random.uniform(2.0, 4.5),
-        FRUIT_TYPE.LEMON,
-    )
-
-
-def generate_strawberry() -> FruitClass:
-    return FruitClass(
-        random.uniform(2.5, 4.5),
-        random.uniform(12.0, 30.0),
-        random.uniform(0.0, 0.08),
-        random.uniform(2.0, 4.0),
-        random.uniform(6.0, 9.5),
-        FRUIT_TYPE.STRAWBERRY,
-    )
-
-
-def generate_watermelon() -> FruitClass:
-    return FruitClass(
-        random.uniform(25.0, 45.0),
-        random.uniform(4000.0, 9000.0),
-        random.uniform(0.25, 0.38),
-        random.uniform(8.5, 10.0),
-        random.uniform(8.0, 12.0),
-        FRUIT_TYPE.WATERMELON,
-    )
-
-
-def generate_blueberry() -> FruitClass:
-    return FruitClass(
-        random.uniform(0.8, 1.8),
-        random.uniform(0.5, 2.5),
-        random.uniform(0.55, 0.68),
-        random.uniform(3.0, 5.0),
-        random.uniform(9.0, 13.0),
-        FRUIT_TYPE.BLUEBERRY,
-    )
-
-
-def generate_orange() -> FruitClass:
-    return FruitClass(
-        random.uniform(6.5, 9.5),
-        random.uniform(130.0, 210.0),
-        random.uniform(0.90, 1.00),
-        random.uniform(5.0, 7.5),
-        random.uniform(9.0, 13.0),
-        FRUIT_TYPE.ORANGE,
-    )
-
-
-def normalize_dataset(
-    data: list[FruitClass], stats: tuple[float, float, float, float] | None = None
-):
-    """Normalizes dataset features. If stats are provided, uses them to scale without leakage."""
-    if stats is None:
-        min_s = min(f.size for f in data)
-        max_s = max(f.size for f in data)
-        min_w = min(f.weight for f in data)
-        max_w = max(f.weight for f in data)
-        stats = (min_s, max_s, min_w, max_w)
-    else:
-        min_s, max_s, min_w, max_w = stats
-
-    for f in data:
-        f.size = (f.size - min_s) / (max_s - min_s + 1e-8)
-        f.weight = (f.weight - min_w) / (max_w - min_w + 1e-8)
-
-    return data, stats
-
-
-GENERATORS = {
-    FRUIT_TYPE.APPLE: generate_apple,
-    FRUIT_TYPE.PEAR: generate_pear,
-    FRUIT_TYPE.BANANA: generate_banana,
-    FRUIT_TYPE.LEMON: generate_lemon,
-    FRUIT_TYPE.STRAWBERRY: generate_strawberry,
-    FRUIT_TYPE.WATERMELON: generate_watermelon,
-    FRUIT_TYPE.BLUEBERRY: generate_blueberry,
-    FRUIT_TYPE.ORANGE: generate_orange,
-}
-
-
-def generate_data(count: int) -> list[FruitClass]:
-    data: list[FruitClass] = []
-
-    # Randomly pick from all available fruit generators
-    for _ in range(count):
-        fruit_type = random.choice(list(FRUIT_TYPE))
-        data.append(GENERATORS[fruit_type]())
-
-    # Min-Max Feature Normalization across all 5 dimensions
-    min_s, max_s = min(f.size for f in data), max(f.size for f in data)
-    min_w, max_w = min(f.weight for f in data), max(f.weight for f in data)
-    min_h, max_h = min(f.color_hue for f in data), max(f.color_hue for f in data)
-    min_f, max_f = min(f.firmness for f in data), max(f.firmness for f in data)
-    min_g, max_g = min(f.sugar for f in data), max(f.sugar for f in data)
-
-    for f in data:
-        f.size = (f.size - min_s) / (max_s - min_s)
-        f.weight = (f.weight - min_w) / (max_w - min_w)
-        f.color_hue = (f.color_hue - min_h) / (max_h - min_h)
-        f.firmness = (f.firmness - min_f) / (max_f - min_f)
-        f.sugar = (f.sugar - min_g) / (max_g - min_g)
-
-    return data
-
+def normalize_dataset(data: list[tuple[NDArray[float64], int]]) -> list[tuple[NDArray[np.float64], int]]:
+    """Normalizes numerical array features by 255.0 while leaving the int label intact."""
+    normalized: list[tuple[NDArray[float64], int]] = []
+    for item in data:
+        features, label = item
+        normalized.append((features / 255.0, label))
+    return normalized
 
 def string_to_array[T](input: str, item_type: type[T], seperator: str = ",") -> list[T]:
     input = input.removeprefix("[")
@@ -669,66 +499,24 @@ def string_to_array[T](input: str, item_type: type[T], seperator: str = ",") -> 
     return items
 
 
+def img_to_vec(img) -> NDArray[float64]:
+    """Return a vector representation of an MNIST image file"""
+    img = Image.open(img)
+    return np.array(img).reshape(-1)
+
+
 if __name__ == "__main__":
-    train = True
-    for _ in range(1):
-        training_data = generate_data(200)
-        training_data, train_stats = normalize_dataset(training_data)
-        net = Network(5, [100], 8)
-        # net = Network(model="./trained.ai")
-        # net.save_weights("./loaded.ai")
+    image_data_array:list[tuple[NDArray[float64], int]] = []
 
-        if train:
-            for _ in range(50):
-                random.shuffle(training_data)
-                for fruit in training_data:
-                    _ = net.forward(
-                        [
-                            fruit.size,
-                            fruit.weight,
-                            fruit.color_hue,
-                            fruit.firmness,
-                            fruit.sugar
-                        ]
-                    )
-                    net.backpropagate(fruit.fruit_type.value, LEARNING_RATE)
-            net.save_weights("./trained.ai")
-        test_data = generate_data(1000)
-        test_data, _ = normalize_dataset(test_data, train_stats)
-        incorrect:list[FruitClass] = []
-        correct = 0
-        for fruit in test_data:
-            result = net.forward([fruit.size, fruit.weight, fruit.color_hue, fruit.firmness, fruit.sugar])
-            predicted = int(np.argmax(result))
-            expected = fruit.fruit_type.value
-            if predicted == expected:
-                correct += 1
-            else:
-                incorrect.append(fruit)
-                
-        color = Fore.WHITE
-        percent_correct = correct / len(test_data)
-        if percent_correct < 0.50:
-            color = Fore.RED
-        elif percent_correct < 0.70:
-            color = Fore.LIGHTRED_EX
-        elif percent_correct < 0.80:
-            color = Fore.YELLOW
-        elif percent_correct < 0.95:
-            color = Fore.LIGHTBLACK_EX
-
-        print(
-            f"{color}\nAccuracy: {correct}/{len(test_data)} ({correct / len(test_data) * 100:.1f}%){Style.RESET_ALL}"
-        )
-        test_samples = []
-        
-        if len(incorrect) == -1:
-            test_samples = [incorrect[i] for i in range(min(len(incorrect), 3))]
-        else:
-            test_samples = [
-                next(fruit for fruit in test_data if fruit.fruit_type == FRUIT_TYPE.APPLE),
-                next(fruit for fruit in test_data if fruit.fruit_type == FRUIT_TYPE.PEAR),
-                next(fruit for fruit in test_data if fruit.fruit_type == FRUIT_TYPE.BANANA),
-            ]
-        
-        net.visualize_multiple(test_samples, class_names=[f.name for f in FRUIT_TYPE])
+    for file in sorted(glob.glob("mnist/training/*/*.png")):
+        x = img_to_vec(file)
+        t = int(file.split("/")[2]) # find out the target label by reading the file path
+        image_data_array.append((x, t),)
+    # print(image_data_array)
+    image_data_array = normalize_dataset(image_data_array)
+    network = Network(784, [], 10)
+    for image_data, label in image_data_array:
+        _ = network.forward(image_data)
+        network.backpropagate(label, 0.03)
+    network.visualize()
+    
