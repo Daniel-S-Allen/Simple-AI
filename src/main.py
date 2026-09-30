@@ -1,23 +1,20 @@
 from __future__ import annotations
+
+import argparse
 import glob
-import hashlib
-from numpy._typing._array_like import NDArray
-from numpy import float64
-import zipfile
-from PIL import Image
-from requests import request
 import math
-from pathlib import Path
 import random
-from enum import Enum
 from io import StringIO
-from typing import Iterator, no_type_check, override
-from tqdm import tqdm
+from typing import no_type_check
+
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from colorama import Fore, Style
-import requests
+from numpy import float64
+from numpy._typing._array_like import NDArray
+from PIL import Image
+from tqdm import tqdm
 
 LEARNING_RATE = 0.03
 DEAD_NEURON_RATE = 0.1
@@ -240,7 +237,7 @@ class Network:
                 file.writelines(neuron.serialize() + "\n" for neuron in layer)
             file.writelines(neuron.serialize() + "\n" for neuron in self.output_layer)
 
-    def forward(self, input_values: list[float|np.ndarray]):
+    def forward(self, input_values: list[float]|NDArray[float64]):
         for neuron, value in zip(self.input_layer, input_values):
             if type(value) == float:
                 neuron.value = value
@@ -293,8 +290,9 @@ class Network:
             for neuron in hidden_layer:
                 error = 0.0
                 for target_neuron, weight in zip(neuron.connections, neuron.weights):
-                    target_id = current_layer.index(target_neuron)
-                    error += current_delta[target_id] * weight
+                    if not target_neuron.dead:
+                        target_id = current_layer.index(target_neuron)
+                        error += current_delta[target_id] * weight
 
                 relu_gradient = 1.0 if neuron.value > 0 else DEAD_NEURON_RATE
                 hidden_delta.append(error * relu_gradient)
@@ -458,28 +456,6 @@ class Network:
             plt.tight_layout()
             plt.show()
 
-    
-    def visualize_multiple(
-        self, samples: list[FruitClass], class_names: list[str] | None = None
-    ):
-        """Executes forward passes for multiple samples and plots network visualizations side-by-side."""
-        n_samples = len(samples)
-        _fig, axes = plt.subplots(1, n_samples, figsize=(5.5 * n_samples, 6))  # pyright: ignore[reportAny]
-
-        if n_samples == 1:
-            axes = [axes]
-
-        for idx, (sample, ax) in enumerate(zip(samples, axes)): # pyright: ignore[reportAny]
-            _ = self.forward([sample.size, sample.weight, sample.color_hue, sample.firmness, sample.sugar])
-            actual_label = (
-                sample.fruit_type.name if hasattr(sample, "fruit_type") else f"Sample {idx + 1}"
-            )
-            sub_title = f"Test #{idx + 1} (Actual: {actual_label})"
-            self.visualize(title=sub_title, class_names=class_names, ax=ax) # pyright: ignore[reportAny, reportUnknownMemberType]
-
-        plt.tight_layout()
-        plt.show()  # pyright: ignore[reportUnknownMemberType]
-
 def normalize_dataset(data: list[tuple[NDArray[float64], int]]) -> list[tuple[NDArray[np.float64], int]]:
     """Normalizes numerical array features by 255.0 while leaving the int label intact."""
     normalized: list[tuple[NDArray[float64], int]] = []
@@ -499,24 +475,95 @@ def string_to_array[T](input: str, item_type: type[T], seperator: str = ",") -> 
     return items
 
 
-def img_to_vec(img) -> NDArray[float64]:
+def img_to_vec(img_path:str) -> NDArray[float64]:
     """Return a vector representation of an MNIST image file"""
-    img = Image.open(img)
+    img = Image.open(img_path)
     return np.array(img).reshape(-1)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    _ = parser.add_argument("--load", help="Load a model from a specific file", type=str)
+    _ = parser.add_argument("--save", help="Save a model (after optional training) to a specific file", type=str)
+    _ = parser.add_argument("--train", action="store_true", help="Train the model from hardcoded paths")
+    _ = parser.add_argument("--test", action="store_true", help="Test the model from hardcoded paths and provide a summary report")
+    _ = parser.add_argument("--file", help="Predict the value by running a file through the model", type=str)
+    _ = parser.add_argument("--visual", action="store_true", help="Display a graphic representing the model")
+    _ = parser.add_argument("--learning_rate", type=float, default=0.05)
+    args = parser.parse_args()
     image_data_array:list[tuple[NDArray[float64], int]] = []
 
-    for file in sorted(glob.glob("mnist/training/*/*.png")):
+    for file in sorted(glob.glob("mnist_dataset/training/*/*.png")):
         x = img_to_vec(file)
         t = int(file.split("/")[2]) # find out the target label by reading the file path
         image_data_array.append((x, t),)
-    # print(image_data_array)
     image_data_array = normalize_dataset(image_data_array)
-    network = Network(784, [], 10)
-    for image_data, label in image_data_array:
-        _ = network.forward(image_data)
-        network.backpropagate(label, 0.03)
-    network.visualize()
+    random.shuffle(image_data_array)
+    network = None
+    if args.load:
+        network = Network(model=args.load)
+    else:
+        network = Network(784, [128, 128, 128], 10)
+    epochs = 6
+    learning_rate = args.learning_rate
+    total_training_count = epochs * len(image_data_array)
+    current_training_count = 0
+    if args.train:
+        with tqdm(total=total_training_count, desc="Training") as pbar:
+            for epoch in range(epochs):
+                random.shuffle(image_data_array)
+                for image, label in image_data_array:
+                    disabled_neurons:list[tuple[int, int]] = []
+                    for hidden_layer_id in range(len(network.hidden_layers)):
+                        for index, neuron in enumerate(network.hidden_layers[hidden_layer_id]):
+                            if random.random() < 0.10 and not neuron.dead:
+                                disabled_neurons.append((hidden_layer_id, index))
+                                
+                    _ = network.forward(image)
+                    network.backpropagate(label, learning_rate)
+                    for layer_id, neuron_id in disabled_neurons:
+                        network.hidden_layers[layer_id][neuron_id].dead = False
+                    _ = pbar.update(1)
+    if args.save:
+        network.save_weights(args.save)
+    if args.test:
+        incorrect:list[str] = []
+        filepaths:list[str] = []
+        test_data_array:list[tuple[NDArray[float64], int]] = []
+        # network.save_weights("kms.ai")
+        for file in sorted(glob.glob("mnist_dataset/testing/*/*.png")):
+            filepaths.append(file)
+            x = img_to_vec(file)
+            t = int(file.split("/")[2]) # find out the target label by reading the file path
+            test_data_array.append((x, t),)
+        # print(image_data_array)
+        test_data_array = normalize_dataset(test_data_array)
+        correct = 0
+        for index, (image, label) in enumerate(test_data_array):
+            result = network.forward(image)
+            predicted = int(np.argmax(result))
+            expected = label
+            if predicted == expected:
+                correct += 1
+            else:
+                incorrect.append(filepaths[index])
+        color = Fore.WHITE
+        percent_correct = correct / len(test_data_array)
+        if percent_correct < 0.50:
+            color = Fore.RED
+        elif percent_correct < 0.70:
+            color = Fore.LIGHTRED_EX
+        elif percent_correct < 0.80:
+            color = Fore.YELLOW
+        elif percent_correct < 0.95:
+            color = Fore.LIGHTBLACK_EX
+
+        print(f"{color}\nAccuracy: {correct}/{len(test_data_array)} ({correct / len(test_data_array) * 100:.1f}%){Style.RESET_ALL}")
+        print(incorrect)
+    if args.file:
+        x = img_to_vec(args.file)
+        result = np.argmax(network.forward(x))
+        print(result)
+    if args.visual:
+        network.visualize()
     
